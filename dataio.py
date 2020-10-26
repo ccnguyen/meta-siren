@@ -2,6 +2,7 @@ import csv
 import glob
 import math
 import os
+import sys
 
 import matplotlib.colors as colors
 import numpy as np
@@ -500,11 +501,11 @@ class CelebA(Dataset):
         super().__init__()
         assert split in ['train', 'test', 'val'], "Unknown split"
 
-        self.root = '/media/data3/awb/CelebA/kaggle/img_align_celeba/img_align_celeba'
+        self.root = '/home/cindy/stor/cindy/meta-siren/data/img_align_celeba/img_align_celeba'
         self.img_channels = 3
         self.fnames = []
 
-        with open('/media/data3/awb/CelebA/kaggle/list_eval_partition.csv', newline='') as csvfile:
+        with open('/home/cindy/stor/cindy/meta-siren/data/list_eval_partition.csv', newline='') as csvfile:
             rowreader = csv.reader(csvfile, delimiter=',', quotechar='|')
             for row in rowreader:
                 if split == 'train' and row[1] == '0':
@@ -743,6 +744,29 @@ class ImageGeneralizationWrapper(torch.utils.data.Dataset):
         in_dict = self.get_generalization_in_dict(spatial_img, img, idx)
         return in_dict, gt_dict
 
+
+############
+# Custom data modules
+class Polynomial(Dataset):
+    def __init__(self):
+        super().__init__()
+        torch.manual_seed(0)
+        self.num_points = 500
+        t = np.linspace(-50, 50, self.num_points)
+        n = np.poly1d([1,3,1,2])
+        self.data = n(t)
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, idx):
+        return self.data
+
+class ImplicitPolyWrapper(torch.utils.data.Dataset):
+    def __init__(self, dataset):
+        self.grid = np.linspace(start=-100, stop=100, num= dataset.num_points)
+        self.grid = self.grid.astype(np.float32)
+        self.grid = torch.Tensor(self.grid).view(-1,1)
 
 
 # in_folder: where to find the data (train, val, test)

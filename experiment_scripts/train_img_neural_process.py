@@ -43,6 +43,7 @@ p.add_argument('--model_type', type=str, default='sine',
 p.add_argument('--checkpoint_path', default=None, help='Checkpoint to trained model.')
 
 p.add_argument('--conv_encoder', action='store_true', default=False, help='Use convolutional encoder process')
+p.add_argument('--partial_conv', default=False, help='Set up partial convolutions')
 opt = p.parse_args()
 
 
@@ -62,7 +63,8 @@ dataloader = DataLoader(generalization_dataset, shuffle=True, batch_size=opt.bat
 if opt.conv_encoder:
     model = meta_modules.ConvolutionalNeuralProcessImplicit2DHypernet(in_features=img_dataset.img_channels,
                                                                       out_features=img_dataset.img_channels,
-                                                                      image_resolution=image_resolution)
+                                                                      image_resolution=image_resolution,
+                                                                      partial_conv=opt.partial_conv)
 else:
     model = meta_modules.NeuralProcessImplicit2DHypernet(in_features=img_dataset.img_channels + 2,
                                                          out_features=img_dataset.img_channels,

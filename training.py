@@ -9,6 +9,7 @@ import time
 import numpy as np
 import os
 import shutil
+import sys
 
 
 def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_checkpoint, model_dir, loss_fn,
@@ -37,6 +38,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
 
     writer = SummaryWriter(summaries_dir)
 
+
     total_steps = 0
     with tqdm(total=len(train_dataloader) * epochs) as pbar:
         train_losses = []
@@ -53,27 +55,14 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 model_input = {key: value.cuda() for key, value in model_input.items()}
                 gt = {key: value.cuda() for key, value in gt.items()}
 
-                if double_precision:
-                    model_input = {key: value.double() for key, value in model_input.items()}
-                    gt = {key: value.double() for key, value in gt.items()}
-
-                if use_lbfgs:
-                    def closure():
-                        optim.zero_grad()
-                        model_output = model(model_input)
-                        losses = loss_fn(model_output, gt)
-                        train_loss = 0.
-                        for loss_name, loss in losses.items():
-                            train_loss += loss.mean() 
-                        train_loss.backward()
-                        return train_loss
-                    optim.step(closure)
-
                 model_output = model(model_input)
                 losses = loss_fn(model_output, gt)
 
                 train_loss = 0.
+
                 for loss_name, loss in losses.items():
+
+
                     single_loss = loss.mean()
 
                     if loss_schedules is not None and loss_name in loss_schedules:
@@ -91,15 +80,10 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                                os.path.join(checkpoints_dir, 'model_current.pth'))
                     summary_fn(model, model_input, gt, model_output, writer, total_steps)
 
+
                 if not use_lbfgs:
                     optim.zero_grad()
                     train_loss.backward()
-
-                    if clip_grad:
-                        if isinstance(clip_grad, bool):
-                            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.)
-                        else:
-                            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad)
 
                     optim.step()
 

@@ -10,7 +10,6 @@ import modules
 class HyperNetwork(nn.Module):
     def __init__(self, hyper_in_features, hyper_hidden_layers, hyper_hidden_features, hypo_module):
         '''
-
         Args:
             hyper_in_features: In features of hypernetwork
             hyper_hidden_layers: Number of hidden layers in hypernetwork
@@ -42,7 +41,6 @@ class HyperNetwork(nn.Module):
         '''
         Args:
             z: Embedding. Input to hypernetwork. Could be output of "Autodecoder" (see above)
-
         Returns:
             params: OrderedDict. Can be directly passed as the "params" parameter of a MetaModule.
         '''

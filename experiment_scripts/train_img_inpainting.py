@@ -13,6 +13,9 @@ from PIL import Image
 from torchvision.transforms import ToTensor
 import numpy as np
 
+
+torch.cuda.empty_cache()
+
 p = configargparse.ArgumentParser()
 p.add('-c', '--config_filepath', required=False, is_config_file=True, help='Path to config file.')
 
