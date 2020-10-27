@@ -50,6 +50,9 @@ p.add_argument('--checkpoint_path', default=None, help='Checkpoint to trained mo
 opt = p.parse_args()
 
 dataset = dataio.Polynomial()
-coord_dataset = dataio.Implicit1DWrapper(dataset)
-generalization_dataset = dataio.PolynomialGeneralizationWrapper(coord_dataset,
+coord_dataset = dataio.ImplicitPolyWrapper(dataset)
+generalization_dataset = dataio.PolyGeneralizationWrapper(coord_dataset,
                                                                 train_sparsity_range=opt.train_sparsity_range)
+
+dataloader = DataLoader(generalization_dataset, shuffle=True, batch_size=opt.batch_size, pin_memory=True, num_workers=0)
+

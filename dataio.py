@@ -111,356 +111,6 @@ def gaussian(x, mu=[0, 0], sigma=1e-4, d=2):
     return torch.from_numpy(1 / np.sqrt(sigma ** d * (2 * np.pi) ** d) * np.exp(q / sigma)).float()
 
 
-class InverseHelmholtz(Dataset):
-    def __init__(self, source_coords, rec_coords, rec_val, sidelength, velocity='uniform', pretrain=False):
-
-        super().__init__()
-        torch.manual_seed(0)
-
-        self.sidelength = sidelength
-        self.mgrid = get_mgrid(self.sidelength).detach()
-        self.velocity = velocity
-        self.wavenumber = 20.
-        self.pretrain = pretrain
-
-        self.N_src_samples = 100  # how many times to sample around each small gaussian source
-        self.sigma = 1e-4
-        self.source = torch.Tensor([1.0, 1.0]).view(-1, 2)
-        self.source_coords = torch.Tensor(source_coords).float()  # Nsrc, 2
-
-        self.rec_coords = torch.Tensor(rec_coords).float()  # Nrec, 2
-        self.rec = torch.zeros(self.rec_coords.shape[0], 2 * self.source_coords.shape[0])  # Nrec, 2*Nsrc
-        for i in range(self.rec.shape[0]):
-            self.rec[i, ::2] = torch.Tensor(rec_val.real)[i, :].float()  # * amplitude
-            self.rec[i, 1::2] = torch.Tensor(rec_val.imag)[i, :].float()  # * amplitude
-
-    def __len__(self):
-        return 1
-
-    def get_squared_slowness(self, coords):
-        if self.velocity == 'square':
-            squared_slowness = torch.zeros_like(coords)
-            perturbation = 2.
-            mask = (torch.abs(coords[..., 0]) < 0.3) & (torch.abs(coords[..., 1]) < 0.3)
-            squared_slowness[..., 0] = torch.where(mask, 1. / perturbation ** 2 * torch.ones_like(mask.float()),
-                                                   torch.ones_like(mask.float()))
-        elif self.velocity == 'circle':
-            squared_slowness = torch.zeros_like(coords)
-            perturbation = 2.
-            mask = (torch.sqrt(coords[..., 0] ** 2 + coords[..., 1] ** 2) < 0.1)
-            squared_slowness[..., 0] = torch.where(mask, 1. / perturbation ** 2 * torch.ones_like(mask.float()),
-                                                   torch.ones_like(mask.float()))
-        else:
-            squared_slowness = torch.ones_like(coords)
-            squared_slowness[..., 1] = 0.
-
-        return squared_slowness
-
-    def __getitem__(self, idx):
-
-        N_src_coords = self.source_coords.shape[0]  # number of sources
-        N_rec_coords = self.rec_coords.shape[0]
-        coords = torch.zeros(self.sidelength ** 2, 2).uniform_(-1., 1.)
-
-        samp_source_coords = torch.zeros(self.N_src_samples * N_src_coords, 2)
-        for i in range(N_src_coords):
-            samp_source_coords_r = 5e2 * self.sigma * torch.rand(self.N_src_samples, 1).sqrt()
-            samp_source_coords_theta = 2 * np.pi * torch.rand(self.N_src_samples, 1)
-            samp_source_coords_x = samp_source_coords_r * torch.cos(samp_source_coords_theta) \
-                                   + self.source_coords[i, 0]
-            samp_source_coords_y = samp_source_coords_r * torch.sin(samp_source_coords_theta) \
-                                   + self.source_coords[i, 1]
-            samp_source_coords[i * self.N_src_samples:(i + 1) * self.N_src_samples, :] = \
-                torch.cat((samp_source_coords_x, samp_source_coords_y), dim=1)
-
-        # Always include coordinates where source is nonzero
-        coords[-self.N_src_samples * N_src_coords:, :] = samp_source_coords
-        coords[:N_rec_coords, :] = self.rec_coords
-
-        # sample each of the source gaussians separately 
-        source_boundary_values = torch.zeros(coords.shape[0], 2 * N_src_coords)
-        for i in range(N_src_coords):
-            source_boundary_values[:, 2 * i:2 * i + 2] = self.source * \
-                                                         gaussian(coords, mu=self.source_coords[i, :],
-                                                                  sigma=self.sigma)[:, None]
-
-        # truncate the source gaussians
-        source_boundary_values[source_boundary_values < 1e-5] = 0.
-
-        # add the receiver dirichlet conditions 
-        rec_boundary_values = torch.zeros(coords.shape[0], self.rec.shape[1])
-        rec_boundary_values[:N_rec_coords:, :] = self.rec
-
-        # we don't know the squared slowness for the inverse problem
-        squared_slowness = torch.Tensor([-1.])
-        squared_slowness_grid = torch.Tensor([-1.])
-        pretrain = torch.Tensor([-1.])
-
-        if self.pretrain:
-            squared_slowness = self.get_squared_slowness(coords)
-            squared_slowness_grid = self.get_squared_slowness(self.mgrid)[:, 0, None]
-            pretrain = torch.Tensor([1.])
-
-        return {'coords': coords}, {'source_boundary_values': source_boundary_values,
-                                    'rec_boundary_values': rec_boundary_values, 'squared_slowness': squared_slowness,
-                                    'squared_slowness_grid': squared_slowness_grid, 'wavenumber': self.wavenumber,
-                                    'pretrain': pretrain}
-
-
-class SingleHelmholtzSource(Dataset):
-    def __init__(self, sidelength, velocity='uniform', source_coords=[0., 0.]):
-        super().__init__()
-        torch.manual_seed(0)
-
-        self.sidelength = sidelength
-        self.mgrid = get_mgrid(self.sidelength).detach()
-        self.velocity = velocity
-        self.wavenumber = 20.
-
-        self.N_src_samples = 100
-        self.sigma = 1e-4
-        self.source = torch.Tensor([1.0, 1.0]).view(-1, 2)
-        self.source_coords = torch.tensor(source_coords).view(-1, 2)
-
-        # For reference: this derives the closed-form solution for the inhomogenous Helmholtz equation.
-        square_meshgrid = lin2img(self.mgrid[None, ...]).numpy()
-        x = square_meshgrid[0, 0, ...]
-        y = square_meshgrid[0, 1, ...]
-
-        # Specify the source.
-        source_np = self.source.numpy()
-        hx = hy = 2 / self.sidelength
-        field = np.zeros((sidelength, sidelength)).astype(np.complex64)
-        for i in range(source_np.shape[0]):
-            x0 = self.source_coords[i, 0].numpy()
-            y0 = self.source_coords[i, 1].numpy()
-            s = source_np[i, 0] + 1j * source_np[i, 1]
-
-            hankel = scipy.special.hankel2(0, self.wavenumber * np.sqrt((x - x0) ** 2 + (y - y0) ** 2) + 1e-6)
-            field += 0.25j * hankel * s * hx * hy
-
-        field_r = torch.from_numpy(np.real(field).reshape(-1, 1))
-        field_i = torch.from_numpy(np.imag(field).reshape(-1, 1))
-        self.field = torch.cat((field_r, field_i), dim=1)
-
-    def __len__(self):
-        return 1
-
-    def get_squared_slowness(self, coords):
-        if self.velocity == 'square':
-            squared_slowness = torch.zeros_like(coords)
-            perturbation = 2.
-            mask = (torch.abs(coords[..., 0]) < 0.3) & (torch.abs(coords[..., 1]) < 0.3)
-            squared_slowness[..., 0] = torch.where(mask, 1. / perturbation ** 2 * torch.ones_like(mask.float()),
-                                                   torch.ones_like(mask.float()))
-        elif self.velocity == 'circle':
-            squared_slowness = torch.zeros_like(coords)
-            perturbation = 2.
-            mask = (torch.sqrt(coords[..., 0] ** 2 + coords[..., 1] ** 2) < 0.1)
-            squared_slowness[..., 0] = torch.where(mask, 1. / perturbation ** 2 * torch.ones_like(mask.float()),
-                                                   torch.ones_like(mask.float()))
-
-        else:
-            squared_slowness = torch.ones_like(coords)
-            squared_slowness[..., 1] = 0.
-
-        return squared_slowness
-
-    def __getitem__(self, idx):
-        # indicate where border values are
-        coords = torch.zeros(self.sidelength ** 2, 2).uniform_(-1., 1.)
-        source_coords_r = 5e2 * self.sigma * torch.rand(self.N_src_samples, 1).sqrt()
-        source_coords_theta = 2 * np.pi * torch.rand(self.N_src_samples, 1)
-        source_coords_x = source_coords_r * torch.cos(source_coords_theta) + self.source_coords[0, 0]
-        source_coords_y = source_coords_r * torch.sin(source_coords_theta) + self.source_coords[0, 1]
-        source_coords = torch.cat((source_coords_x, source_coords_y), dim=1)
-
-        # Always include coordinates where source is nonzero
-        coords[-self.N_src_samples:, :] = source_coords
-
-        # We use the value "zero" to encode "no boundary constraint at this coordinate"
-        boundary_values = self.source * gaussian(coords, mu=self.source_coords, sigma=self.sigma)[:, None]
-        boundary_values[boundary_values < 1e-5] = 0.
-
-        # specify squared slowness
-        squared_slowness = self.get_squared_slowness(coords)
-        squared_slowness_grid = self.get_squared_slowness(self.mgrid)[:, 0, None]
-
-        return {'coords': coords}, {'source_boundary_values': boundary_values, 'gt': self.field,
-                                    'squared_slowness': squared_slowness,
-                                    'squared_slowness_grid': squared_slowness_grid,
-                                    'wavenumber': self.wavenumber}
-
-
-class WaveSource(Dataset):
-    def __init__(self, sidelength, velocity='uniform', source_coords=[0., 0., 0.],
-                 pretrain=False):
-        super().__init__()
-        torch.manual_seed(0)
-
-        self.pretrain = pretrain
-        self.sidelength = sidelength
-        self.mgrid = get_mgrid(self.sidelength).detach()
-        self.velocity = velocity
-
-        self.N_src_samples = 1000
-        self.sigma = 5e-4
-        self.source_coords = torch.tensor(source_coords).view(-1, 3)
-
-        self.counter = 0
-        self.full_count = 100e3
-
-    def __len__(self):
-        return 1
-
-    def get_squared_slowness(self, coords):
-        if self.velocity == 'square':
-            squared_slowness = torch.zeros_like(coords[:, 0])
-            perturbation = 2.
-            mask = (torch.abs(coords[..., 0]) < 0.3) & (torch.abs(coords[..., 1]) < 0.3)
-            squared_slowness[..., 0] = torch.where(mask, 1. / perturbation ** 2 * torch.ones_like(mask.float()),
-                                                   torch.ones_like(mask.float()))
-        elif self.velocity == 'circle':
-            squared_slowness = torch.zeros_like(coords[:, 0])
-            perturbation = 2.
-            mask = (torch.sqrt(coords[..., 0] ** 2 + coords[..., 1] ** 2) < 0.1)
-            squared_slowness[..., 0] = torch.where(mask, 1. / perturbation ** 2 * torch.ones_like(mask.float()),
-                                                   torch.ones_like(mask.float()))
-        else:
-            squared_slowness = torch.ones_like(coords[:, 0])
-        return squared_slowness
-
-    def __getitem__(self, idx):
-        start_time = self.source_coords[0, 0]  # time to apply  initial conditions
-
-        r = 5e2 * self.sigma * torch.rand(self.N_src_samples, 1).sqrt()
-        phi = 2 * np.pi * torch.rand(self.N_src_samples, 1)
-
-        # circular sampling
-        source_coords_x = r * torch.cos(phi) + self.source_coords[0, 1]
-        source_coords_y = r * torch.sin(phi) + self.source_coords[0, 2]
-        source_coords = torch.cat((source_coords_x, source_coords_y), dim=1)
-
-        # uniformly sample domain and include coordinates where source is non-zero 
-        coords = torch.zeros(self.sidelength ** 2, 2).uniform_(-1, 1)
-
-        if self.pretrain:
-            # only sample in time around the initial condition
-            time = torch.zeros(self.sidelength ** 2, 1).uniform_(start_time - 0.001, start_time + 0.001)
-            coords = torch.cat((time, coords), dim=1)
-            # make sure we spatially sample the source
-            coords[-self.N_src_samples:, 1:] = source_coords
-        else:
-            # slowly grow time values from start time
-            # this currently assumes start_time = 0 and max time value is 0.75. 
-            time = torch.zeros(self.sidelength ** 2, 1).uniform_(0, 0.4 * (self.counter / self.full_count))
-            coords = torch.cat((time, coords), dim=1)
-
-            # make sure we always have training samples at the initial condition
-            coords[-self.N_src_samples:, 1:] = source_coords
-            coords[-2 * self.N_src_samples:, 0] = start_time
-
-            # set up source
-        normalize = 50 * gaussian(torch.zeros(1, 2), mu=torch.zeros(1, 2), sigma=self.sigma, d=2)
-        boundary_values = gaussian(coords[:, 1:], mu=self.source_coords[:, 1:], sigma=self.sigma, d=2)[:, None]
-        boundary_values /= normalize
-
-        if self.pretrain:
-            dirichlet_mask = torch.ones(coords.shape[0], 1) > 0
-        else:
-            # only enforce initial conditions around start_time
-            boundary_values = torch.where((coords[:, 0, None] == start_time), boundary_values, torch.Tensor([0]))
-            dirichlet_mask = (coords[:, 0, None] == start_time)
-
-        boundary_values[boundary_values < 1e-5] = 0.
-
-        # specify squared slowness
-        squared_slowness = self.get_squared_slowness(coords)[:, None]
-        squared_slowness_grid = self.get_squared_slowness(self.mgrid)[:, None]
-
-        self.counter += 1
-
-        if self.pretrain and self.counter == 2000:
-            self.pretrain = False
-            self.counter = 0
-
-        return {'coords': coords}, {'source_boundary_values': boundary_values, 'dirichlet_mask': dirichlet_mask,
-                                    'squared_slowness': squared_slowness, 'squared_slowness_grid': squared_slowness_grid}
-
-
-class PointCloud(Dataset):
-    def __init__(self, pointcloud_path, on_surface_points, keep_aspect_ratio=True):
-        super().__init__()
-
-        print("Loading point cloud")
-        point_cloud = np.genfromtxt(pointcloud_path)
-        print("Finished loading point cloud")
-
-        coords = point_cloud[:, :3]
-        self.normals = point_cloud[:, 3:]
-
-        # Reshape point cloud such that it lies in bounding box of (-1, 1) (distorts geometry, but makes for high
-        # sample efficiency)
-        coords -= np.mean(coords, axis=0, keepdims=True)
-        if keep_aspect_ratio:
-            coord_max = np.amax(coords)
-            coord_min = np.amin(coords)
-        else:
-            coord_max = np.amax(coords, axis=0, keepdims=True)
-            coord_min = np.amin(coords, axis=0, keepdims=True)
-
-        self.coords = (coords - coord_min) / (coord_max - coord_min)
-        self.coords -= 0.5
-        self.coords *= 2.
-
-        self.on_surface_points = on_surface_points
-
-    def __len__(self):
-        return self.coords.shape[0] // self.on_surface_points
-
-    def __getitem__(self, idx):
-        point_cloud_size = self.coords.shape[0]
-
-        off_surface_samples = self.on_surface_points  # **2
-        total_samples = self.on_surface_points + off_surface_samples
-
-        # Random coords
-        rand_idcs = np.random.choice(point_cloud_size, size=self.on_surface_points)
-
-        on_surface_coords = self.coords[rand_idcs, :]
-        on_surface_normals = self.normals[rand_idcs, :]
-
-        off_surface_coords = np.random.uniform(-1, 1, size=(off_surface_samples, 3))
-        off_surface_normals = np.ones((off_surface_samples, 3)) * -1
-
-        sdf = np.zeros((total_samples, 1))  # on-surface = 0
-        sdf[self.on_surface_points:, :] = -1  # off-surface = -1
-
-        coords = np.concatenate((on_surface_coords, off_surface_coords), axis=0)
-        normals = np.concatenate((on_surface_normals, off_surface_normals), axis=0)
-
-        return {'coords': torch.from_numpy(coords).float()}, {'sdf': torch.from_numpy(sdf).float(),
-                                                              'normals': torch.from_numpy(normals).float()}
-
-
-class Video(Dataset):
-    def __init__(self, path_to_video):
-        super().__init__()
-        if 'npy' in path_to_video:
-            self.vid = np.load(path_to_video)
-        elif 'mp4' in path_to_video:
-            self.vid = skvideo.io.vread(path_to_video).astype(np.single) / 255.
-
-        self.shape = self.vid.shape[:-1]
-        self.channels = self.vid.shape[-1]
-
-    def __len__(self):
-        return 1
-
-    def __getitem__(self, idx):
-        return self.vid
-
-
 class Camera(Dataset):
     def __init__(self, downsample_factor=1):
         super().__init__()
@@ -643,36 +293,6 @@ class Implicit2DWrapper(torch.utils.data.Dataset):
         return spatial_img, img, gt_dict
 
 
-class Implicit3DWrapper(torch.utils.data.Dataset):
-    def __init__(self, dataset, sidelength=None, sample_fraction=1.):
-
-        if isinstance(sidelength, int):
-            sidelength = 3 * (sidelength,)
-
-        self.dataset = dataset
-        self.mgrid = get_mgrid(sidelength, dim=3)
-        data = (torch.from_numpy(self.dataset[0]) - 0.5) / 0.5
-        self.data = data.view(-1, self.dataset.channels)
-        self.sample_fraction = sample_fraction
-        self.N_samples = int(self.sample_fraction * self.mgrid.shape[0])
-
-    def __len__(self):
-        return len(self.dataset)
-
-    def __getitem__(self, idx):
-        if self.sample_fraction < 1.:
-            coord_idx = torch.randint(0, self.data.shape[0], (self.N_samples,))
-            data = self.data[coord_idx, :]
-            coords = self.mgrid[coord_idx, :]
-        else:
-            coords = self.mgrid
-            data = self.data
-
-        in_dict = {'idx': idx, 'coords': coords}
-        gt_dict = {'img': data}
-
-        return in_dict, gt_dict
-
 
 class ImageGeneralizationWrapper(torch.utils.data.Dataset):
     def __init__(self, dataset, test_sparsity=None, train_sparsity_range=(10, 200), generalization_mode=None):
@@ -762,152 +382,48 @@ class Polynomial(Dataset):
     def __getitem__(self, idx):
         return self.data
 
+
 class ImplicitPolyWrapper(torch.utils.data.Dataset):
     def __init__(self, dataset):
-        self.grid = np.linspace(start=-100, stop=100, num= dataset.num_points)
+        self.dataset = dataset
+        self.num_points = self.dataset.num_points
+        self.grid = np.linspace(start=-100, stop=100, num=self.num_points)
         self.grid = self.grid.astype(np.float32)
-        self.grid = torch.Tensor(self.grid).view(-1,1)
-
-
-# in_folder: where to find the data (train, val, test)
-# color: whether to load in color
-# idx_to_sample: which index to sample (usefull if wanting to fit a single image)
-# preload: whether or not to preload in memory
-class BSD500ImageDataset(Dataset):
-    def __init__(self,
-                 in_folder='data/BSD500/train',
-                 is_color=False,
-                 size=[321, 321],  # BSD is 481x321
-                 preload=True,
-                 idx_to_sample=[]):
-        self.in_folder = in_folder
-        self.size = size
-        self.idx_to_sample = idx_to_sample
-        self.is_color = is_color
-        self.preload = preload
-        if (self.is_color):
-            self.img_channels = 3
-        else:
-            self.img_channels = 1
-
-        self.img_filenames = []
-        self.img_preloaded = []
-        for idx, filename in enumerate(sorted(glob.glob(self.in_folder + '/*.jpg'))):
-            # print(f'Gathering img #{idx}')
-            self.img_filenames.append(filename)
-
-            if (self.preload):
-                # print(f'... preloaded')
-                img = self.load_image(filename)
-                self.img_preloaded.append(img)
-
-        if (self.preload):
-            assert (len(self.img_preloaded) == len(self.img_filenames))
-
-    def load_image(self, filename):
-        img = Image.open(filename, 'r')
-        if not self.is_color:
-            img = img.convert("L")
-        img = img.crop((0, 0, self.size[0], self.size[1]))
-
-        return img
-
-    def __len__(self):
-        # If we have specified specific idx to sample from, we only
-        # return from those, otherwise, we want to return from the whole
-        # dataset
-        if (len(self.idx_to_sample) != 0):
-            return len(self.idx_to_sample)
-        else:
-            return len(self.img_filenames)
-
-    def __getitem__(self, item):
-        # if we have specified specific idx to sample from, convert
-        # back the item number to the actual item we can sample from,
-        # otherwise you can directly use the item since the length
-        # corresponds to all the files in the directory.
-        if (len(self.idx_to_sample) != 0):
-            idx = self.idx_to_sample[item]
-        else:
-            idx = item
-
-        if (self.preload):
-            img = self.img_preloaded[idx]
-        else:
-            img = self.load_image(self.img_filenames[idx])
-
-        return img
-
-
-class CompositeGradients(Dataset):
-    def __init__(self, img_filepath1, img_filepath2,
-                 sidelength=None,
-                 is_color=False):
-        super().__init__()
-
-        if isinstance(sidelength, int):
-            sidelength = (sidelength, sidelength)
-
-        self.is_color = is_color
-        if (self.is_color):
-            self.channels = 3
-        else:
-            self.channels = 1
-
-        self.img1 = Image.open(img_filepath1)
-        self.img2 = Image.open(img_filepath2)
-
-        if not self.is_color:
-            self.img1 = self.img1.convert("L")
-            self.img2 = self.img2.convert("L")
-        else:
-            self.img1 = self.img1.convert("RGB")
-            self.img2 = self.img2.convert("RGB")
-
-        self.transform = Compose([
-            ToTensor(),
-            Normalize(torch.Tensor([0.5]), torch.Tensor([0.5]))
-        ])
-
-        self.mgrid = get_mgrid(sidelength)
-
-        self.img1 = self.transform(self.img1)
-        self.img2 = self.transform(self.img2)
-
-        paddedImg = .85 * torch.ones_like(self.img1)
-        paddedImg[:, 512 - 340:512, :] = self.img2
-        self.img2 = paddedImg
-
-        self.grads1 = self.compute_gradients(self.img1)
-        self.grads2 = self.compute_gradients(self.img2)
-
-        self.comp_grads = (.5 * self.grads1 + .5 * self.grads2)
-
-        self.img1 = self.img1.permute(1, 2, 0).view(-1, self.channels)
-        self.img2 = self.img2.permute(1, 2, 0).view(-1, self.channels)
-
-    def compute_gradients(self, img):
-        if not self.is_color:
-            gradx = scipy.ndimage.sobel(img.numpy(), axis=1).squeeze(0)[..., None]
-            grady = scipy.ndimage.sobel(img.numpy(), axis=2).squeeze(0)[..., None]
-        else:
-            gradx = np.moveaxis(scipy.ndimage.sobel(img.numpy(), axis=1), 0, -1)
-            grady = np.moveaxis(scipy.ndimage.sobel(img.numpy(), axis=2), 0, -1)
-
-        grads = torch.cat((torch.from_numpy(gradx).reshape(-1, self.channels),
-                           torch.from_numpy(grady).reshape(-1, self.channels)),
-                          dim=-1)
-        return grads
+        self.grid = torch.Tensor(self.grid).view(-1, 1)
 
     def __len__(self):
         return 1
 
     def __getitem__(self, idx):
-        in_dict = {'idx': idx, 'coords': self.mgrid}
-        gt_dict = {'img1': self.img1,
-                   'img2': self.img2,
-                   'grads1': self.grads1,
-                   'grads2': self.grads2,
-                   'gradients': self.comp_grads}
+        data = self.dataset[idx]
+        data = torch.Tensor(data).view(-1, 1)
+        return {'idx': idx, 'coords': self.grid}, {'func': data}
 
+
+class PolyGeneralizationWrapper(torch.utils.data.Dataset):
+    def __init__(self, dataset, train_sparsity_range, generalization_mode=None):
+        self.dataset = dataset
+        self.grid = dataset.grid
+        self.train_sparsity_range = train_sparsity_range
+        self.generalization_mode = generalization_mode
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def get_generalization_in_dict(self, func, idx):
+        if self.generalization_mode == None:
+            num_context = int(torch.empty(1).uniform_(self.train_sparsity_range[0], self.train_sparsity_range[1]).item())
+            mask = func.new_empty(1, self.dataset.num_points).bernoulli_(p=num_context / self.dataset.num_points)
+            func_sparse = mask * func
+            in_dict = {'idx': idx, 'coords': self.grid, 'func_sparse': func_sparse}
+        else:
+            raise NotImplementedError
+
+        return in_dict
+
+    def __getitem__(self, idx):
+        func, gt_dict = self.dataset[idx]
+        func_copy = gt_dict['func']
+        in_dict = self.get_generalization_in_dict(func_copy, idx)
         return in_dict, gt_dict
+
