@@ -70,6 +70,7 @@ else:
     model = meta_modules.NeuralProcessImplicit2DHypernet(in_features=img_dataset.img_channels + 2,
                                                          out_features=img_dataset.img_channels,
                                                          image_resolution=image_resolution)
+sys.exit()
 model.cuda()
 
 # Define the loss

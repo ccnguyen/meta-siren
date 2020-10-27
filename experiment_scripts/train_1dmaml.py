@@ -59,6 +59,7 @@ dataloader = DataLoader(generalization_dataset, shuffle=True, batch_size=opt.bat
 model = meta_modules.FCEncoder1DHypernet(in_features=1,
                                          out_features=1)
 
+sys.exit()
 model.cuda()
 
 loss_fn = partial(loss_functions.func_hypernetwork_loss, opt.kl_weight, opt.fw_weight)

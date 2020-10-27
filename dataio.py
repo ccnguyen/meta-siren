@@ -11,7 +11,6 @@ import scipy.ndimage
 import scipy.special
 import skimage
 import skimage.filters
-import skvideo.io
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
@@ -426,4 +425,3 @@ class PolyGeneralizationWrapper(torch.utils.data.Dataset):
         func_copy = gt_dict['func']
         in_dict = self.get_generalization_in_dict(func_copy, idx)
         return in_dict, gt_dict
-
