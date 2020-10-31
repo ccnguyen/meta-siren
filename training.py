@@ -55,12 +55,13 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 model_input = {key: value.cuda() for key, value in model_input.items()}
                 gt = {key: value.cuda() for key, value in gt.items()}
 
-                print(model_input.keys())
-                print(gt.keys())
-                sys.exit()
-
                 model_output = model(model_input)
+
+
+
                 losses = loss_fn(model_output, gt)
+
+
 
                 train_loss = 0.
 

@@ -5,6 +5,7 @@ import torch
 from torch import nn
 from collections import OrderedDict
 import modules
+import sys
 
 
 class HyperNetwork(nn.Module):
@@ -56,7 +57,6 @@ class FCEncoder1DHypernet(nn.Module):
         super().__init__()
 
         latent_dim = 128
-
         self.hypo_net = modules.SingleBVPNet(out_features=out_features,
                                              type='sine',
                                              mode='mlp',
@@ -84,7 +84,9 @@ class FCEncoder1DHypernet(nn.Module):
         return hypo_params, embedding
 
     def forward(self, model_input):
+
         embedding = self.encoder(model_input['func_sparse'])
+
         hypo_params = self.hyper_net(embedding)
 
         model_output = self.hypo_net(model_input, params=hypo_params)

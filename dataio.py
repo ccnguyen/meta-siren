@@ -151,11 +151,11 @@ class CelebA(Dataset):
         super().__init__()
         assert split in ['train', 'test', 'val'], "Unknown split"
 
-        self.root = '/home/cindy/stor/cindy/meta-siren/data/img_align_celeba/img_align_celeba'
+        self.root = '../data/img_align_celeba/img_align_celeba'
         self.img_channels = 3
         self.fnames = []
 
-        with open('/home/cindy/stor/cindy/meta-siren/data/list_eval_partition.csv', newline='') as csvfile:
+        with open('../data/list_eval_partition.csv', newline='') as csvfile:
             rowreader = csv.reader(csvfile, delimiter=',', quotechar='|')
             for row in rowreader:
                 if split == 'train' and row[1] == '0':
@@ -205,6 +205,7 @@ class ImplicitAudioWrapper(torch.utils.data.Dataset):
         scale = np.max(np.abs(data))
         data = (data / scale)
         data = torch.Tensor(data).view(-1, 1)
+
         return {'idx': idx, 'coords': self.grid}, {'func': data, 'rate': rate, 'scale': scale}
 
 
@@ -372,7 +373,7 @@ class Polynomial(Dataset):
         super().__init__()
         torch.manual_seed(0)
         self.num_points = 500
-        t = np.linspace(-50, 50, self.num_points)
+        t = np.linspace(-100, 100, self.num_points)
         n = np.poly1d([1,3,1,2])
         self.data = n(t)
 
@@ -410,11 +411,15 @@ class PolyGeneralizationWrapper(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.dataset)
 
-    def get_generalization_in_dict(self, func, idx):
+    def get_generalization_in_dict(self, data, idx):
         if self.generalization_mode == None:
+
+            data = torch.squeeze(data, axis=-1)
             num_context = int(torch.empty(1).uniform_(self.train_sparsity_range[0], self.train_sparsity_range[1]).item())
-            mask = func.new_empty(1, self.dataset.num_points).bernoulli_(p=num_context / self.dataset.num_points)
-            func_sparse = mask * func
+            mask = data.new_empty(1, self.dataset.num_points).bernoulli_(p=num_context / self.dataset.num_points)
+            func_sparse = mask * data
+            func_sparse = func_sparse.permute((1,0))
+
             in_dict = {'idx': idx, 'coords': self.grid, 'func_sparse': func_sparse}
         else:
             raise NotImplementedError
@@ -423,7 +428,7 @@ class PolyGeneralizationWrapper(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         func, gt_dict = self.dataset[idx]
-        func_copy = gt_dict['func']
-        in_dict = self.get_generalization_in_dict(func_copy, idx)
+        data = gt_dict['func']
+        in_dict = self.get_generalization_in_dict(data, idx)
         return in_dict, gt_dict
 

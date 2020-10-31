@@ -10,8 +10,6 @@ import os
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 
 import dataio, meta_modules, utils, training, loss_functions
-
-import torch
 from torch.utils.data import DataLoader
 import configargparse
 from functools import partial
@@ -52,7 +50,7 @@ opt = p.parse_args()
 dataset = dataio.Polynomial()
 coord_dataset = dataio.ImplicitPolyWrapper(dataset)
 generalization_dataset = dataio.PolyGeneralizationWrapper(coord_dataset,
-                                                                train_sparsity_range=opt.train_sparsity_range)
+                                                            train_sparsity_range=opt.train_sparsity_range)
 
 dataloader = DataLoader(generalization_dataset, shuffle=True, batch_size=opt.batch_size, pin_memory=True, num_workers=0)
 
