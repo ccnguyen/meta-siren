@@ -22,9 +22,9 @@ p.add_argument('--experiment_name', type=str, default='maml',
                help='Name of subdirectory in logging_root where summaries and checkpoints will be saved.')
 
 # General training options
-p.add_argument('--batch_size', type=int, default=100)
+p.add_argument('--batch_size', type=int, default=1)
 p.add_argument('--lr', type=float, default=5e-5, help='learning rate. default=5e-5')
-p.add_argument('--num_epochs', type=int, default=401,
+p.add_argument('--num_epochs', type=int, default=2001,
                help='Number of epochs to train for.')
 
 p.add_argument('--kl_weight', type=float, default=1e-1,
@@ -38,26 +38,30 @@ p.add_argument('--train_sparsity_range', type=int, nargs='+', default=[10, 200],
 
 p.add_argument('--epochs_til_ckpt', type=int, default=10,
                help='Time interval in seconds until checkpoint is saved.')
-p.add_argument('--steps_til_summary', type=int, default=1000,
+p.add_argument('--steps_til_summary', type=int, default=200,
                help='Time interval in seconds until tensorboard summary is saved.')
 
 p.add_argument('--model_type', type=str, default='sine',
                help='Nonlinearity for the hypo-network module')
 p.add_argument('--checkpoint_path', default=None, help='Checkpoint to trained model.')
 
+p.add_argument('--num_points', type=int, default=500,
+               help='Number of points to define the polynomial function')
+
+
 opt = p.parse_args()
 
-dataset = dataio.Polynomial()
+
+dataset = dataio.Polynomial(num_points=opt.num_points)
 coord_dataset = dataio.ImplicitPolyWrapper(dataset)
 generalization_dataset = dataio.PolyGeneralizationWrapper(coord_dataset,
                                                             train_sparsity_range=opt.train_sparsity_range)
 
 dataloader = DataLoader(generalization_dataset, shuffle=True, batch_size=opt.batch_size, pin_memory=True, num_workers=0)
 
-model = meta_modules.FCEncoder1DHypernet(in_features=1,
+model = meta_modules.FCEncoder1DHypernet(in_features=opt.num_points,
                                          out_features=1)
 
-sys.exit()
 model.cuda()
 
 loss_fn = partial(loss_functions.func_hypernetwork_loss, opt.kl_weight, opt.fw_weight)

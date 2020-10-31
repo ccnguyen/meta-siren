@@ -18,7 +18,7 @@ p.add_argument('--experiment_name', type=str, required=True,
                help='Name of subdirectory in logging_root where summaries and checkpoints will be saved.')
 
 # General training options
-p.add_argument('--batch_size', type=int, default=100)
+p.add_argument('--batch_size', type=int, default=50)
 p.add_argument('--lr', type=float, default=5e-5, help='learning rate. default=5e-5')
 p.add_argument('--num_epochs', type=int, default=401,
                help='Number of epochs to train for.')
@@ -42,7 +42,7 @@ p.add_argument('--model_type', type=str, default='sine',
 
 p.add_argument('--checkpoint_path', default=None, help='Checkpoint to trained model.')
 
-p.add_argument('--conv_encoder', action='store_true', default=False, help='Use convolutional encoder process')
+p.add_argument('--conv_encoder', action='store_true', default=True, help='Use convolutional encoder process')
 p.add_argument('--partial_conv', default=False, help='Set up partial convolutions')
 opt = p.parse_args()
 
@@ -66,11 +66,10 @@ if opt.conv_encoder:
                                                                       image_resolution=image_resolution,
                                                                       partial_conv=opt.partial_conv)
 else:
-    print(img_dataset.img_channels)
     model = meta_modules.NeuralProcessImplicit2DHypernet(in_features=img_dataset.img_channels + 2,
                                                          out_features=img_dataset.img_channels,
                                                          image_resolution=image_resolution)
-sys.exit()
+
 model.cuda()
 
 # Define the loss
