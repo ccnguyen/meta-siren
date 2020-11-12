@@ -24,11 +24,13 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                                   history_size=50, line_search_fn='strong_wolfe')
 
     if os.path.exists(model_dir):
-        val = input("The model directory %s exists. Overwrite? (y/n)"%model_dir)
+        #val = input("The model directory %s exists. Overwrite? (y/n)"%model_dir)
+        val = 'y'
         if val == 'y':
             shutil.rmtree(model_dir)
 
     os.makedirs(model_dir)
+
 
     summaries_dir = os.path.join(model_dir, 'summaries')
     utils.cond_mkdir(summaries_dir)
@@ -56,17 +58,11 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 gt = {key: value.cuda() for key, value in gt.items()}
 
                 model_output = model(model_input)
-
-
-
                 losses = loss_fn(model_output, gt)
-
-
 
                 train_loss = 0.
 
                 for loss_name, loss in losses.items():
-
 
                     single_loss = loss.mean()
 

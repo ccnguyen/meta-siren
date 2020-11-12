@@ -13,12 +13,17 @@ def batch_meta_collate(collate_fn):
         if isinstance(task, TorchDataset):
             return collate_fn([task[idx] for idx in range(len(task))])
         elif isinstance(task, OrderedDict):
-            return OrderedDict([(key, collate_task(subtask))
-                for (key, subtask) in task.items()])
+            return OrderedDict([(key, collate_task(subtask)) for (key, subtask) in task.items()])
         else:
             raise NotImplementedError()
 
     def _collate_fn(batch):
+        '''
+        collate_fn: merges a list of samples to form a
+            mini-batch of Tensor(s).  Used when using batched loading from a
+            map-style dataset.
+
+        '''
         return collate_fn([collate_task(task) for task in batch])
 
     return _collate_fn
@@ -51,6 +56,7 @@ class MetaDataLoader(DataLoader):
 class BatchMetaDataLoader(MetaDataLoader):
     def __init__(self, dataset, batch_size=1, shuffle=True, sampler=None, num_workers=0,
                  pin_memory=False, drop_last=False, timeout=0, worker_init_fn=None):
+
         collate_fn = batch_meta_collate(default_collate)
 
         super(BatchMetaDataLoader, self).__init__(dataset,

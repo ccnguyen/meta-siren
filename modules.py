@@ -297,6 +297,120 @@ class RBFLayer(nn.Module):
 
 ########################
 # Encoder modules
+# class SingleBVPNet_inpaint(MetaModule):
+#     '''A canonical representation network for a BVP.'''
+#
+#     def __init__(self, out_features=1, type='sine', in_features=2,
+#                  mode='mlp', hidden_features=256, num_hidden_layers=3, **kwargs):
+#         super().__init__()
+#         self.mode = mode
+#
+#         self.net = FCBlock(in_features=in_features, out_features=out_features, num_hidden_layers=num_hidden_layers,
+#                            hidden_features=hidden_features, outermost_linear=True, nonlinearity=type)
+#         print(self)
+#
+#     def forward(self, model_input):
+#         if model_input.get('embedding', None) is None:
+#             pixels, coords = model_input['img_sub'], model_input['coords_sub']
+#             ctxt_mask = model_input.get('ctxt_mask', None)
+#             embedding = self.encoder(coords, pixels, ctxt_mask=ctxt_mask)
+#         else:
+#             embedding = model_input['embedding']
+#         hypo_params = self.hyper_net(embedding)
+#
+#         model_output = self.hypo_net(model_input, params=hypo_params)
+#         return {'model_in': model_output['model_in'], 'model_out': model_output['model_out'], 'latent_vec': embedding,
+#                 'hypo_params': hypo_params}
+#
+#     def forward(self, context_x, context_y, ctxt_mask=None, **kwargs):
+#         input = torch.cat((context_x, context_y), dim=-1)
+#         print(input.shape)
+#         embeddings = self.net(input)
+#         print(embeddings.keys())
+#         sys.exit()
+#
+#         if ctxt_mask is not None:
+#             embeddings = embeddings * ctxt_mask
+#             embedding = embeddings.mean(dim=-2) * (embeddings.shape[-2] / torch.sum(ctxt_mask, dim=-2))
+#             return embedding
+#         return embeddings.mean(dim=-2)
+#     #
+#     # def forward(self, model_input, params=None):
+#     #     if params is None:
+#     #         params = OrderedDict(self.named_parameters())
+#     #
+#     #     # Enables us to compute gradients w.r.t. coordinates
+#     #     coords_org = model_input['coords'].clone().detach().requires_grad_(True)
+#     #     coords = coords_org
+#     #
+#     #
+#     #     output = self.net(coords, get_subdict(params, 'net'))
+#     #     return {'model_in': coords_org, 'model_out': output}
+
+
+class FCEncoder(MetaModule):
+    '''A fully connected neural network that also allows swapping out the weights when used with a hypernetwork.
+    Can be used just as a normal neural network though, as well.
+    '''
+
+    def __init__(self, in_features, out_features, num_hidden_layers, hidden_features,
+                 outermost_linear=False, nonlinearity='relu', weight_init=None):
+        super().__init__()
+
+        self.first_layer_init = None
+
+        # Dictionary that maps nonlinearity name to the respective function, initialization, and, if applicable,
+        # special first-layer initialization scheme
+        nls_and_inits = {'sine':(Sine(), sine_init, first_layer_sine_init),
+                         'relu':(nn.ReLU(inplace=True), init_weights_normal, None),
+                         'sigmoid':(nn.Sigmoid(), init_weights_xavier, None),
+                         'tanh':(nn.Tanh(), init_weights_xavier, None),
+                         'selu':(nn.SELU(inplace=True), init_weights_selu, None),
+                         'softplus':(nn.Softplus(), init_weights_normal, None),
+                         'elu':(nn.ELU(inplace=True), init_weights_elu, None)}
+
+        nl, nl_weight_init, first_layer_init = nls_and_inits[nonlinearity]
+
+        if weight_init is not None:  # Overwrite weight init if passed
+            self.weight_init = weight_init
+        else:
+            self.weight_init = nl_weight_init
+
+        self.net = []
+        self.net.append(MetaSequential(
+            BatchLinear(in_features, hidden_features), nl
+        ))
+
+        for i in range(num_hidden_layers):
+            self.net.append(MetaSequential(
+                BatchLinear(hidden_features, hidden_features), nl
+            ))
+
+        if outermost_linear:
+            self.net.append(MetaSequential(BatchLinear(hidden_features, out_features)))
+        else:
+            self.net.append(MetaSequential(
+                BatchLinear(hidden_features, out_features), nl
+            ))
+
+        self.net = MetaSequential(*self.net)
+        if self.weight_init is not None:
+            self.net.apply(self.weight_init)
+
+        if first_layer_init is not None: # Apply special initialization to first layer, if applicable.
+            self.net[0].apply(first_layer_init)
+
+    def forward(self, context_x, context_y, ctxt_mask=None, **kwargs):
+        input = torch.cat((context_x, context_y), dim=-1)
+        embeddings = self.net(input)
+
+        if ctxt_mask is not None:
+            embeddings = embeddings * ctxt_mask
+            embedding = embeddings.mean(dim=-2) * (embeddings.shape[-2] / torch.sum(ctxt_mask, dim=-2))
+            return embedding
+        return embeddings.mean(dim=-2)
+
+
 class SetEncoder(nn.Module):
     def __init__(self, in_features, out_features,
                  num_hidden_layers, hidden_features, nonlinearity='relu'):

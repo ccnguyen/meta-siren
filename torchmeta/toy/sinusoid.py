@@ -1,4 +1,5 @@
 import numpy as np
+import sys
 
 from torchmeta.utils.data import Task, MetaDataset
 
@@ -81,6 +82,7 @@ class Sinusoid(MetaDataset):
 
     def __getitem__(self, index):
         amplitude, phase = self.amplitudes[index], self.phases[index]
+
         task = SinusoidTask(index, amplitude, phase, self._input_range,
             self.noise_std, self.num_samples_per_task, self.transform,
             self.target_transform, np_random=self.np_random)
@@ -125,5 +127,4 @@ class SinusoidTask(Task):
 
         if self.target_transform is not None:
             target = self.target_transform(target)
-
         return (input, target)

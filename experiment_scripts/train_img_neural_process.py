@@ -30,9 +30,9 @@ p.add_argument('--train_sparsity_range', type=int, nargs='+', default=[10, 200],
                help='Two integers: lowest number of sparse pixels sampled followed by highest number of sparse'
                     'pixels sampled when training the conditional neural process')
 
-p.add_argument('--epochs_til_ckpt', type=int, default=10,
+p.add_argument('--epochs_til_ckpt', type=int, default=2,
                help='Time interval in seconds until checkpoint is saved.')
-p.add_argument('--steps_til_summary', type=int, default=1000,
+p.add_argument('--steps_til_summary', type=int, default=100,
                help='Time interval in seconds until tensorboard summary is saved.')
 
 p.add_argument('--dataset', type=str, default='celeba_32x32',
@@ -42,7 +42,7 @@ p.add_argument('--model_type', type=str, default='sine',
 
 p.add_argument('--checkpoint_path', default=None, help='Checkpoint to trained model.')
 
-p.add_argument('--conv_encoder', action='store_true', default=True, help='Use convolutional encoder process')
+p.add_argument('--conv_encoder', action='store_true', default=False, help='Use convolutional encoder process')
 p.add_argument('--partial_conv', default=False, help='Set up partial convolutions')
 opt = p.parse_args()
 

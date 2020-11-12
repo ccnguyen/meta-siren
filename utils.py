@@ -71,6 +71,30 @@ def write_image_summary_small(image_resolution, mask, model, model_input, gt, mo
     hypernet_activation_summary(model, model_input, gt, model_output, writer, total_steps, prefix)
 
 
+
+def write_image_maml(image_resolution, mask, model, model_input, gt, model_output, writer, total_steps, prefix='train_'):
+    if mask is None:
+        gt_img = dataio.lin2img(gt['img'], image_resolution)
+        gt_dense = gt_img
+    else:
+        gt_img = dataio.lin2img(gt['img'], image_resolution) * mask
+        gt_dense = gt_img
+
+    pred_img = dataio.lin2img(model_output['model_out'], image_resolution)
+
+
+    output_vs_gt = torch.cat((gt_img, pred_img), dim=-1)
+    writer.add_image(prefix + 'gt_vs_pred', make_grid(output_vs_gt, scale_each=False, normalize=True),
+                     global_step=total_steps)
+    write_psnr(pred_img, gt_dense, writer, total_steps, prefix + 'img_dense_')
+
+    min_max_summary(prefix + 'coords', model_input['coords'], writer, total_steps)
+    min_max_summary(prefix + 'pred_img', pred_img, writer, total_steps)
+    min_max_summary(prefix + 'gt_img', gt_img, writer, total_steps)
+
+    hypernet_activation_summary(model, model_input, gt, model_output, writer, total_steps, prefix)
+
+
 def write_func_summary(model, model_input, gt, model_output, writer, total_steps, prefix='train'):
     gt_func = torch.squeeze(gt['func'])
     pred_func = torch.squeeze(model_output['model_out'])

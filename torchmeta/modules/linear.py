@@ -3,6 +3,7 @@ import torch.nn.functional as F
 
 from collections import OrderedDict
 from torchmeta.modules.module import MetaModule
+import sys
 
 class MetaLinear(nn.Linear, MetaModule):
     __doc__ = nn.Linear.__doc__
@@ -11,6 +12,7 @@ class MetaLinear(nn.Linear, MetaModule):
         if params is None:
             params = OrderedDict(self.named_parameters())
         bias = params.get('bias', None)
+
         return F.linear(input, params['weight'], bias)
 
 class MetaBilinear(nn.Bilinear, MetaModule):
