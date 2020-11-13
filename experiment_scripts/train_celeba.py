@@ -97,6 +97,7 @@ model.cuda()
 
 # Define the loss
 loss_fn = partial(loss_functions.image_hypernetwork_loss, None, opt.kl_weight, opt.fw_weight)
+loss_fn = partial(loss_functions.image_maml_loss, None, opt.kl_weight, opt.fw_weight)
 summary_fn = partial(utils.write_image_maml, image_resolution, None)
 
 root_path = os.path.join(opt.logging_root, opt.experiment_name)

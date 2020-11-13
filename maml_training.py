@@ -58,9 +58,8 @@ def gradient_update(model, inner_loss, step_size, params=None):
             updated_params[name] = param - step_size * grad
     return updated_params
 
-def adapt(model, loss_fn, model_input, gt, num_adaptation_steps, step_size):
+def adapt(model, loss_fn, model_input, gt, num_adaptation_steps, step_size, writer, summary_fn):
     params = OrderedDict(model.named_parameters())
-
 
     results = {'inner_losses': np.zeros(
         (num_adaptation_steps,), dtype=np.float32)}
@@ -70,6 +69,12 @@ def adapt(model, loss_fn, model_input, gt, num_adaptation_steps, step_size):
         inner_loss = loss_fn(model_output, gt)
         img_loss = inner_loss['img_loss']
         results['inner_losses'][step] = img_loss #inner_loss.item()
+        writer.add_scalar('inner_loss', results['inner_losses'][step], step)
+
+        for loss_name, loss in inner_loss.items():
+            single_loss = loss.mean()
+            writer.add_scalar(f'inner_loop_{loss_name}', single_loss, step)
+        summary_fn(model, model_input, gt, model_output, writer, step, inner=True)
 
 
         model.zero_grad()
@@ -83,6 +88,7 @@ def adapt(model, loss_fn, model_input, gt, num_adaptation_steps, step_size):
         #                                     step_size=step_size, params=params)
 
     return updated_params, results
+
 
 def normalize(input):
     input = (input-input.min()) / (input.max() - input.min()).float()
@@ -182,7 +188,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 for task_num in range(train_targets.shape[0]):
                     params, adaptation_results = adapt(model, loss_fn, model_input, gt,
                                                        num_adaptation_steps= num_adaptation_steps,
-                                                       step_size=step_size)
+                                                       step_size=step_size, writer=writer, summary_fn=summary_fn)
                     results['inner_losses'][:, task_num] = adaptation_results['inner_losses']
 
                     # do the same processing with the test dataset
@@ -213,7 +219,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 if not total_steps % steps_til_summary:
                     torch.save(model.state_dict(),
                                os.path.join(checkpoints_dir, 'model_current.pth'))
-                    summary_fn(model, test_model_input, test_gt, test_model_output, writer, total_steps)
+                    summary_fn(model, test_model_input, test_gt, test_model_output, writer, total_steps, inner=False)
 
                 # if not use_lbfgs:
                 #     optim.zero_grad()

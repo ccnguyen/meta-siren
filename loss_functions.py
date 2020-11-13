@@ -83,6 +83,11 @@ def image_hypernetwork_loss(mask, kl, fw, model_output, gt):
             'hypo_weight_loss': fw * hypo_weight_loss(model_output)}
 
 
+def image_maml_loss(mask, kl, fw, model_output, gt):
+    return {'img_loss': image_mse(mask, model_output, gt)['img_loss'],
+            'hypo_weight_loss': fw * hypo_weight_loss(model_output)}
+
+
 def function_mse(model_output, gt):
     return {'func_loss': ((model_output['model_out'] - gt['func']) ** 2).mean()}
 

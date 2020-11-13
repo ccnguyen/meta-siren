@@ -10,6 +10,8 @@ import cv2
 import meta_modules
 import scipy.io.wavfile as wavfile
 import cmapy
+import sys
+import imageio
 
 
 def cond_mkdir(path):
@@ -72,7 +74,7 @@ def write_image_summary_small(image_resolution, mask, model, model_input, gt, mo
 
 
 
-def write_image_maml(image_resolution, mask, model, model_input, gt, model_output, writer, total_steps, prefix='train_'):
+def write_image_maml(image_resolution, mask, model, model_input, gt, model_output, writer, total_steps, inner=False, prefix='train_'):
     if mask is None:
         gt_img = dataio.lin2img(gt['img'], image_resolution)
         gt_dense = gt_img
@@ -82,8 +84,16 @@ def write_image_maml(image_resolution, mask, model, model_input, gt, model_outpu
 
     pred_img = dataio.lin2img(model_output['model_out'], image_resolution)
 
+    if inner:
+        prefix = 'inner_train_'
+    else:
+        prefix = 'outer_train_'
 
     output_vs_gt = torch.cat((gt_img, pred_img), dim=-1)
+
+    # p = make_grid(output_vs_gt, scale_each=False, normalize=True)
+    # imageio.imwrite(f'./test/test_{total_steps}.png', p.permute(1,2,0).cpu().detach().numpy())
+
     writer.add_image(prefix + 'gt_vs_pred', make_grid(output_vs_gt, scale_each=False, normalize=True),
                      global_step=total_steps)
     write_psnr(pred_img, gt_dense, writer, total_steps, prefix + 'img_dense_')
@@ -92,7 +102,7 @@ def write_image_maml(image_resolution, mask, model, model_input, gt, model_outpu
     min_max_summary(prefix + 'pred_img', pred_img, writer, total_steps)
     min_max_summary(prefix + 'gt_img', gt_img, writer, total_steps)
 
-    hypernet_activation_summary(model, model_input, gt, model_output, writer, total_steps, prefix)
+    # hypernet_activation_summary(model, model_input, gt, model_output, writer, total_steps, prefix)
 
 
 def write_func_summary(model, model_input, gt, model_output, writer, total_steps, prefix='train'):
